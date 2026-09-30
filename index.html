@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111318" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Frankie AI" />
+  <title>Frankie AI</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icon-180.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="appShell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">LOCAL AI COCKPIT</div>
+        <h1>Frankie AI</h1>
+      </div>
+      <button id="installBtn" class="ghost hidden">Install</button>
+    </header>
+
+    <main>
+      <section id="homeView" class="view active">
+        <div class="hero card">
+          <div>
+            <p class="eyebrow">READY WHEN YOU ARE</p>
+            <h2>Your AI toolbox, prompt vault, and launchpad.</h2>
+            <p class="muted">No login. No required API key. Your prompt library stays in this browser unless you export it.</p>
+          </div>
+          <div class="hero-actions">
+            <button data-nav="toolbox" class="primary">Open Toolbox</button>
+            <button data-nav="studio" class="secondary">New Prompt</button>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <button class="tile" data-nav="vault"><span>📚</span><strong>Prompt Vault</strong><small>Search, tag, favorite, reuse</small></button>
+          <button class="tile" data-nav="studio"><span>🧠</span><strong>Prompt Studio</strong><small>Variables, versions, templates</small></button>
+          <button class="tile" data-nav="toolbox"><span>⚡</span><strong>AI Toolbox</strong><small>Research, troubleshoot, rewrite</small></button>
+          <button class="tile" data-nav="launch"><span>🚀</span><strong>AI Launchpad</strong><small>Copy and open your model</small></button>
+        </div>
+
+        <div class="card stats-card">
+          <div><strong id="promptCount">0</strong><span>prompts</span></div>
+          <div><strong id="favoriteCount">0</strong><span>favorites</span></div>
+          <div><strong id="versionCount">0</strong><span>versions</span></div>
+        </div>
+      </section>
+
+      <section id="vaultView" class="view">
+        <div class="section-head"><div><p class="eyebrow">LIBRARY</p><h2>Prompt Vault</h2></div><button id="newPromptFromVault" class="primary small">+ New</button></div>
+        <div class="card search-row"><input id="vaultSearch" placeholder="Search prompts, tags, folders…" /><select id="vaultFilter"><option value="all">All</option><option value="favorites">Favorites</option></select></div>
+        <div id="vaultList" class="stack"></div>
+      </section>
+
+      <section id="studioView" class="view">
+        <div class="section-head"><div><p class="eyebrow">BUILD</p><h2>Prompt Studio</h2></div><button id="clearStudio" class="ghost small">Clear</button></div>
+        <div class="card form-card">
+          <label>Title<input id="promptTitle" placeholder="e.g. Technical Troubleshooting" /></label>
+          <div class="grid two compact">
+            <label>Folder<input id="promptFolder" placeholder="Support" /></label>
+            <label>Tags<input id="promptTags" placeholder="support, email, troubleshooting" /></label>
+          </div>
+          <label>Prompt<textarea id="promptBody" rows="12" placeholder="Use variables like {{customer}}, {{issue}}, {{tone}}"></textarea></label>
+          <div class="variable-row">
+            <input id="variableName" placeholder="variable_name" />
+            <button id="insertVariable" class="secondary small">Insert {{variable}}</button>
+          </div>
+          <div class="button-row">
+            <button id="savePrompt" class="primary">Save Prompt</button>
+            <button id="previewPrompt" class="secondary">Fill Variables</button>
+            <button id="favoritePrompt" class="ghost">☆ Favorite</button>
+          </div>
+          <input id="editingId" type="hidden" />
+        </div>
+
+        <div id="variablePanel" class="card hidden">
+          <div class="section-head tight"><h3>Fill Variables</h3><button id="closeVariables" class="ghost small">Close</button></div>
+          <div id="variableFields" class="stack slim"></div>
+          <label>Rendered Prompt<textarea id="renderedPrompt" rows="10" readonly></textarea></label>
+          <div class="button-row"><button id="copyRendered" class="primary">Copy</button><button id="sendRenderedToLaunch" class="secondary">Open Launchpad</button></div>
+        </div>
+
+        <div id="versionPanel" class="card hidden">
+          <div class="section-head tight"><h3>Version History</h3></div>
+          <div id="versionList" class="stack slim"></div>
+        </div>
+      </section>
+
+      <section id="toolboxView" class="view">
+        <div class="section-head"><div><p class="eyebrow">TRANSFORM</p><h2>AI Toolbox</h2></div></div>
+        <div class="card form-card">
+          <label>Input<textarea id="toolInput" rows="8" placeholder="Paste text, an error message, notes, or a rough prompt…"></textarea></label>
+          <div id="toolGrid" class="grid two compact"></div>
+          <label>Generated Prompt<textarea id="toolOutput" rows="12" readonly></textarea></label>
+          <div class="button-row"><button id="copyToolOutput" class="primary">Copy</button><button id="saveToolAsPrompt" class="secondary">Save to Vault</button><button id="toolToLaunch" class="ghost">Launch AI</button></div>
+        </div>
+      </section>
+
+      <section id="launchView" class="view">
+        <div class="section-head"><div><p class="eyebrow">ROUTE</p><h2>AI Launchpad</h2></div></div>
+        <div class="card form-card">
+          <label>Prompt<textarea id="launchPrompt" rows="12" placeholder="Paste or send a prompt here…"></textarea></label>
+          <p class="muted small-text">Frankie AI copies your prompt first, then opens the provider. Paste into the chat and go.</p>
+          <div id="providerGrid" class="grid two compact"></div>
+        </div>
+      </section>
+
+      <section id="settingsView" class="view">
+        <div class="section-head"><div><p class="eyebrow">CONTROL ROOM</p><h2>Settings & Backup</h2></div></div>
+        <div class="card stack">
+          <div><h3>Backup</h3><p class="muted">Export your prompt vault and settings to a JSON file, or import them later.</p></div>
+          <div class="button-row"><button id="exportData" class="primary">Export Backup</button><label class="secondary file-button">Import Backup<input id="importData" type="file" accept="application/json" hidden /></label></div>
+        </div>
+        <div class="card stack">
+          <div><h3>Appearance</h3><p class="muted">Dark is the default. Use system mode if you want the interface to follow iOS.</p></div>
+          <select id="themeSelect"><option value="dark">Dark</option><option value="system">System</option><option value="light">Light</option></select>
+        </div>
+        <div class="card danger-zone">
+          <h3>Reset</h3><p class="muted">Deletes Frankie AI data stored in this browser.</p><button id="resetData" class="danger">Reset Local Data</button>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav">
+      <button data-nav="home" class="active"><span>⌂</span><small>Home</small></button>
+      <button data-nav="vault"><span>📚</span><small>Vault</small></button>
+      <button data-nav="toolbox"><span>⚡</span><small>Tools</small></button>
+      <button data-nav="launch"><span>🚀</span><small>Launch</small></button>
+      <button data-nav="settings"><span>⚙️</span><small>Settings</small></button>
+    </nav>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+  <script src="app.js"></script>
+</body>
+</html>
