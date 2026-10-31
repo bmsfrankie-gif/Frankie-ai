@@ -41,6 +41,7 @@
           <button class="tile" data-nav="studio"><span>🧠</span><strong>Prompt Studio</strong><small>Variables, versions, templates</small></button>
           <button class="tile" data-nav="toolbox"><span>⚡</span><strong>AI Toolbox</strong><small>Research, troubleshoot, rewrite</small></button>
           <button class="tile" data-nav="launch"><span>🚀</span><strong>AI Launchpad</strong><small>Copy and open your model</small></button>
+          <button class="tile" data-nav="mcp"><span>🔌</span><strong>MCP Connections</strong><small>Live tools & resources</small></button>
         </div>
 
         <div class="card stats-card">
@@ -107,6 +108,18 @@
           <p class="muted small-text">Frankie AI copies your prompt first, then opens the provider. Paste into the chat and go.</p>
           <div id="providerGrid" class="grid two compact"></div>
         </div>
+      </section>
+
+      <section id="mcpView" class="view">
+        <div class="section-head"><div><p class="eyebrow">LIVE DATA</p><h2>MCP Connections</h2></div></div>
+        <div class="card form-card">
+          <label>Name<input id="mcpName" placeholder="e.g. My Notes Server" /></label>
+          <label>Server URL<input id="mcpUrl" placeholder="https://example.com/mcp" /></label>
+          <label>Auth Token (optional)<input id="mcpToken" type="password" placeholder="Bearer token, stored locally only" /></label>
+          <div class="button-row"><button id="addMcpServer" class="primary">Add Server</button></div>
+          <p class="muted small-text">Frankie AI connects directly from your browser to the MCP server's HTTP endpoint. The server must support the Streamable HTTP transport and allow cross-origin requests (CORS). Tokens are stored only in this browser's local storage.</p>
+        </div>
+        <div id="mcpList" class="stack"></div>
       </section>
 
       <section id="settingsView" class="view">

@@ -1,7 +1,8 @@
 const STORE_KEY='frankieAI.v1';
-const defaultData={prompts:[],settings:{theme:'dark'}};
+const defaultData={prompts:[],settings:{theme:'dark'},mcpServers:[]};
 let data=loadData();
 let deferredInstallPrompt=null;
+let rpcId=0;
 
 const tools=[
   ['✨ Improve Prompt','Turn a rough request into a structured, high-quality prompt.','improve'],
@@ -23,11 +24,11 @@ const providers=[
 ];
 
 function $(id){return document.getElementById(id)}
-function loadData(){try{return {...defaultData,...JSON.parse(localStorage.getItem(STORE_KEY)||'{}')}}catch{return structuredClone(defaultData)}}
-function saveData(){localStorage.setItem(STORE_KEY,JSON.stringify(data));updateStats();renderVault()}
+function loadData(){try{const d={...defaultData,...JSON.parse(localStorage.getItem(STORE_KEY)||'{}')};d.mcpServers=(d.mcpServers||[]).map(s=>({...s,connected:false,sessionId:null}));return d}catch{return structuredClone(defaultData)}}
+function saveData(){localStorage.setItem(STORE_KEY,JSON.stringify(data));updateStats();renderVault();renderMcp()}
 function uid(){return crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2)}
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.remove('hidden');setTimeout(()=>t.classList.add('hidden'),1700)}
-function nav(name){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$(name+'View').classList.add('active');document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.toggle('active',b.dataset.nav===name));window.scrollTo({top:0,behavior:'smooth'});if(name==='vault')renderVault();}
+function nav(name){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$(name+'View').classList.add('active');document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.toggle('active',b.dataset.nav===name));window.scrollTo({top:0,behavior:'smooth'});if(name==='vault')renderVault();if(name==='mcp')renderMcp();}
 function updateStats(){ $('promptCount').textContent=data.prompts.length; $('favoriteCount').textContent=data.prompts.filter(p=>p.favorite).length; $('versionCount').textContent=data.prompts.reduce((a,p)=>a+(p.versions?.length||0),0)}
 function escapeHTML(s=''){return s.replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
 function parseTags(s){return s.split(',').map(x=>x.trim()).filter(Boolean)}
@@ -44,6 +45,84 @@ window.copyPrompt=async id=>{const p=data.prompts.find(x=>x.id===id);if(p){await
 window.toggleFav=id=>{const p=data.prompts.find(x=>x.id===id);if(p){p.favorite=!p.favorite;saveData();}}
 window.deletePrompt=id=>{if(confirm('Delete this prompt?')){data.prompts=data.prompts.filter(x=>x.id!==id);saveData();}}
 window.sendPrompt=id=>{const p=data.prompts.find(x=>x.id===id);if(p){$('launchPrompt').value=p.body;nav('launch')}}
+
+async function mcpRequest(server,method,params,{notification=false}={}){
+  const headers={'Content-Type':'application/json','Accept':'application/json, text/event-stream'};
+  if(server.token)headers['Authorization']=`Bearer ${server.token}`;
+  if(server.sessionId)headers['Mcp-Session-Id']=server.sessionId;
+  if(server.protocolVersion)headers['MCP-Protocol-Version']=server.protocolVersion;
+  const body={jsonrpc:'2.0',method,params:params||{}};
+  if(!notification)body.id=++rpcId;
+  const res=await fetch(server.url,{method:'POST',headers,body:JSON.stringify(body)});
+  const sid=res.headers.get('mcp-session-id');if(sid)server.sessionId=sid;
+  if(notification)return null;
+  if(!res.ok){let t='';try{t=await res.text()}catch{}throw new Error(`HTTP ${res.status}${t?': '+t.slice(0,160):''}`)}
+  const ct=res.headers.get('content-type')||'';
+  let json;
+  if(ct.includes('text/event-stream')){
+    const text=await res.text();
+    const match=text.split('\n').filter(l=>l.startsWith('data:')).map(l=>{try{return JSON.parse(l.slice(5).trim())}catch{return null}}).find(j=>j&&j.id===body.id);
+    if(!match)throw new Error('No matching response from server');
+    json=match;
+  }else{
+    json=await res.json();
+  }
+  if(json.error)throw new Error(json.error.message||'MCP server returned an error');
+  return json;
+}
+
+async function mcpConnect(server){
+  const initRes=await mcpRequest(server,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'Frankie AI',version:'1.0'}});
+  server.protocolVersion=initRes.result?.protocolVersion||'2025-06-18';
+  await mcpRequest(server,'notifications/initialized',{},{notification:true});
+  server.connected=true;server.lastConnected=new Date().toISOString();
+  await mcpRefresh(server);
+}
+
+async function mcpRefresh(server){
+  try{const t=await mcpRequest(server,'tools/list',{});server.tools=t.result?.tools||[]}catch{server.tools=server.tools||[]}
+  try{const r=await mcpRequest(server,'resources/list',{});server.resources=r.result?.resources||[]}catch{server.resources=server.resources||[]}
+}
+
+function renderMcp(){
+  const list=$('mcpList');if(!list)return;
+  const servers=data.mcpServers||[];
+  if(!servers.length){list.innerHTML='<div class="card muted">No MCP servers yet. Add one above to pull live tools and resources into your prompts.</div>';return}
+  list.innerHTML=servers.map(s=>{
+    const status=s.connected?'<span class="badge ok">Connected</span>':s.lastError?'<span class="badge err">Error</span>':'<span class="badge">Not connected</span>';
+    const tools=(s.tools||[]).map(t=>`<div class="prompt-card"><h3>🔧 ${escapeHTML(t.name)}</h3><div class="meta">${escapeHTML(t.description||'No description')}</div></div>`).join('');
+    const resources=(s.resources||[]).map(r=>`<div class="prompt-card"><h3>📄 ${escapeHTML(r.name||r.uri)}</h3><div class="meta">${escapeHTML(r.uri)}</div><div class="prompt-actions"><button class="secondary" onclick="mcpUseResource('${s.id}','${escapeHTML(r.uri)}')">Insert as Context</button></div></div>`).join('');
+    const counts=`<p class="muted small-text">${(s.tools||[]).length} tools · ${(s.resources||[]).length} resources</p>`;
+    return `<div class="card stack">
+      <div class="section-head tight"><div><h3>${escapeHTML(s.name)}</h3><div class="meta">${escapeHTML(s.url)}</div></div>${status}</div>
+      ${s.lastError?`<p class="muted small-text">${escapeHTML(s.lastError)}</p>`:''}
+      <div class="button-row">
+        <button class="secondary small" onclick="mcpConnectClick('${s.id}')">${s.connected?'Refresh':'Connect'}</button>
+        <button class="danger small" onclick="mcpRemove('${s.id}')">Remove</button>
+      </div>
+      ${s.connected?counts+tools+resources:''}
+    </div>`;
+  }).join('');
+}
+
+window.mcpConnectClick=async id=>{
+  const s=(data.mcpServers||[]).find(x=>x.id===id);if(!s)return;
+  toast('Connecting…');
+  try{await mcpConnect(s);s.lastError=null;toast('Connected')}
+  catch(e){s.connected=false;s.lastError=e.message||'Connection failed';toast('Connection failed')}
+  saveData();
+};
+window.mcpRemove=id=>{if(confirm('Remove this MCP server?')){data.mcpServers=(data.mcpServers||[]).filter(x=>x.id!==id);saveData();}};
+window.mcpUseResource=async(id,uri)=>{
+  const s=(data.mcpServers||[]).find(x=>x.id===id);if(!s)return;
+  try{
+    const res=await mcpRequest(s,'resources/read',{uri});
+    const text=(res.result?.contents||[]).map(c=>c.text||'').join('\n\n');
+    $('toolInput').value=text||'(empty resource)';
+    nav('toolbox');
+    toast('Resource inserted into Toolbox input');
+  }catch(e){toast('Failed to read resource')}
+};
 
 function clearStudio(){['editingId','promptTitle','promptFolder','promptTags','promptBody'].forEach(id=>$(id).value='');$('favoritePrompt').textContent='☆ Favorite';$('variablePanel').classList.add('hidden');$('versionPanel').classList.add('hidden')}
 function savePrompt(){const title=$('promptTitle').value.trim()||'Untitled Prompt';const body=$('promptBody').value.trim();if(!body){toast('Add a prompt first');return;}const id=$('editingId').value;let p=data.prompts.find(x=>x.id===id);if(p){p.versions=p.versions||[];if(p.body!==body)p.versions.unshift({id:uid(),body:p.body,at:new Date().toISOString()});p.title=title;p.folder=$('promptFolder').value.trim();p.tags=parseTags($('promptTags').value);p.body=body;p.updatedAt=new Date().toISOString();toast('Prompt updated');}else{p={id:uid(),title,folder:$('promptFolder').value.trim(),tags:parseTags($('promptTags').value),body,favorite:false,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),versions:[]};data.prompts.unshift(p);$('editingId').value=p.id;toast('Prompt saved');}saveData();renderVersions(p)}
@@ -79,10 +158,21 @@ function init(){
   $('toolGrid').innerHTML=tools.map(([n,d,k])=>`<button class="tool-btn" data-tool="${k}"><strong>${n}</strong><small>${d}</small></button>`).join('');document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{$('toolOutput').value=toolPrompt(b.dataset.tool,$('toolInput').value);toast('Prompt generated')});
   $('copyToolOutput').onclick=async()=>{await copyText($('toolOutput').value);toast('Copied')};$('toolToLaunch').onclick=()=>{$('launchPrompt').value=$('toolOutput').value;nav('launch')};$('saveToolAsPrompt').onclick=()=>{const out=$('toolOutput').value;if(!out){toast('Generate a tool prompt first');return;}clearStudio();$('promptTitle').value='Toolbox Prompt';$('promptFolder').value='Toolbox';$('promptBody').value=out;nav('studio')};
   $('providerGrid').innerHTML=providers.map(([n,d,u])=>`<button class="provider-btn" data-url="${u}"><strong>${n}</strong><small>${d}</small></button>`).join('');document.querySelectorAll('.provider-btn').forEach(b=>b.onclick=async()=>{const p=$('launchPrompt').value;if(p){await copyText(p);toast('Copied. Opening '+b.querySelector('strong').textContent)}window.open(b.dataset.url,'_blank')});
+  $('addMcpServer').onclick=()=>{
+    const url=$('mcpUrl').value.trim();
+    if(!url){toast('Enter a server URL');return}
+    const name=$('mcpName').value.trim()||'Untitled Server';
+    const token=$('mcpToken').value.trim();
+    data.mcpServers=data.mcpServers||[];
+    data.mcpServers.unshift({id:uid(),name,url,token,connected:false,tools:[],resources:[],lastError:null});
+    $('mcpName').value='';$('mcpUrl').value='';$('mcpToken').value='';
+    saveData();
+    toast('Server added');
+  };
   $('exportData').onclick=exportData;$('importData').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const incoming=JSON.parse(r.result);if(!Array.isArray(incoming.prompts))throw new Error();data={...defaultData,...incoming};saveData();applyTheme();toast('Backup imported')}catch{alert('That file does not look like a Frankie AI backup.')}};r.readAsText(f)};
   $('themeSelect').onchange=e=>{data.settings=data.settings||{};data.settings.theme=e.target.value;saveData();applyTheme()};$('resetData').onclick=()=>{if(confirm('Delete all Frankie AI local data?')){data=structuredClone(defaultData);saveData();applyTheme();clearStudio();toast('Local data reset')}};
   window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;$('installBtn').classList.remove('hidden')});$('installBtn').onclick=async()=>{if(deferredInstallPrompt){deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;$('installBtn').classList.add('hidden')}else{alert('On iPhone: tap Share in Safari, then Add to Home Screen.') }};
-  updateStats();renderVault();applyTheme();
+  updateStats();renderVault();renderMcp();applyTheme();
   if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');
 }
 init();
